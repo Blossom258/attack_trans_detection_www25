@@ -171,8 +171,8 @@ class MultiModalTransactionDataset(Dataset):
                 node_type2feats[t] = list()
                 node_type2nodes[t] = list()
             feats = [graph.in_degree(node), graph.out_degree(node)]
-            if t == 'Block':
-                feats.extend(opcode_embedding(attrs['operations']))
+            # if t == 'Block':
+            #     feats.extend(opcode_embedding(attrs['operations'])) #不要block
             if t == 'Log':
                 feats.append(str(attrs['event_name']))
             node_type2feats[t].append(feats)
@@ -207,20 +207,20 @@ class MultiModalTransactionDataset(Dataset):
                     int(attrs.get('is_error', False)),
                     str(attrs.get('func_name', '')),
                 ])
-            elif attrs['type'] == 'JUMP' or attrs['type'] == 'JUMPI':
-                edge_type2edge_attr[t].append([
-                    *[float(num) for num in ('%e' % attrs.get('index', -1)).split('e')],
-                ])
-            elif attrs['type'] == 'Select':
-                edge_type2edge_attr[t].append([
-                    *[float(num) for num in ('%e' % attrs.get('index', -1)).split('e')],
-                    str(attrs.get('func_name', '')),
-                ])
+
+            #合约到块的第一个函数的select移动到transaction，合约之间函数调用的select移动到call
+            # elif attrs['type'] == 'Select':
+            #     edge_type2edge_attr[t].append([
+            #         *[float(num) for num in ('%e' % attrs.get('index', -1)).split('e')],
+            #         str(attrs.get('func_name', '')),
+            #     ])
+
+
             elif attrs['type'] == 'Emit':
                 edge_type2edge_attr[t].append([
                     *[float(num) for num in ('%e' % attrs.get('emit_index', -1)).split('e')],
                     int(attrs.get('removed', False)),
-                ])
+                ])  ##他的起点是个block，把它改成合约，已经在nx.py改成合约地址
             elif attrs['type'] == 'Token20Transfer':
                 edge_type2edge_attr[t].append([
                     *[float(num) for num in ('%e' % attrs.get('log_index', -1)).split('e')],
@@ -262,6 +262,7 @@ class MultiModalTransactionDataset(Dataset):
                     *[float(num) for num in ('%e' % attrs.get('index', -1)).split('e')],
                     *[float(num) for num in ('%e' % attrs.get('value', -1)).split('e')],
                     *[float(num) for num in ('%e' % attrs.get('gas', -1)).split('e')],
+                    str(attrs.get('func_name', '')),#合约间的调用触发的函数名,取代select
                 ])
 
         # embed text in feats and save data

@@ -43,6 +43,8 @@ class NetworkxDataset:
         )
         for item in reader.iter_read():
             g = nx.MultiDiGraph()
+
+            ###这里是给两个账户加上交易边，不改
             g.add_node(item['address_from'], type='Account')
             g.add_node(item['address_to'], type='Account')
             g.add_edge(
@@ -56,55 +58,66 @@ class NetworkxDataset:
                 is_error=item.get('is_error') == 'True',
                 type='Transaction',
                 transaction_index=int(item['transaction_index']),
+                func_name=item['func_name']#contract到block的select连边触发的函数，移动到交易
             )
-            tx2graph[item['transaction_hash']] = g
-            tx2top_func_name[item['transaction_hash']] = item['func_name']
-            tx2block_path[item['transaction_hash']] = dict()
+
+
+            tx2graph[item['transaction_hash']] = g #每个交易哈希对应一个交易图
+            tx2top_func_name[item['transaction_hash']] = item['func_name'] #记录每个交易哈希触发的第一个函数名
+            tx2block_path[item['transaction_hash']] = dict() #记录每个交易哈希触发的块路径
 
         # load dcfg
         bid2operations = dict()
         for block in DCFGBlockReader(path).iter_read():
             bid2operations[block['block_id']] = block['operations']
+            #block['block_id']的形式为0x111111111117dc0aa78b770fa6a738034120c302#0
+            #contract_address#start_pc
             for op in block['operations']:
-                if not op.startswith('LOG'):
+                if not op.startswith('LOG'):#检测有的操作码是否以log开头
                     continue
                 block2log_cnt[block['block_id']] = block2log_cnt.get(block['block_id'], 0) + 1
+                #记录该block_id触发了几次log
         reader = DCFGEdgeReader(path, signature2keyword=self.signature2keyword)
         for control_flow in reader.iter_read():
             transaction_hash = control_flow['transaction_hash']
+            #from_block_id的形式为'0x111111111117dc0aa78b770fa6a738034120c302#0'
+            #address_from#start_pc_from
             from_block_id = control_flow['from_block_id']
+            #to_block_id的形式为'0x111111111117dc0aa78b770fa6a738034120c302#16'
+            #address_to#start_pc_to
             to_block_id = control_flow['to_block_id']
             g = tx2graph.get(transaction_hash)
             if g is None:
                 continue
-            if not g.has_node(from_block_id):
-                operations = bid2operations.get(from_block_id, [])
-                g.add_node(
-                    from_block_id,
-                    operations=operations,
-                    type='Block',
-                )
-            if not g.has_node(to_block_id):
-                operations = bid2operations.get(to_block_id, [])
-                g.add_node(
-                    to_block_id,
-                    operations=operations,
-                    type='Block',
-                )
+            # if not g.has_node(from_block_id):
+            #     operations = bid2operations.get(from_block_id, []) #跟71行对应上
+            #     g.add_node(
+            #         from_block_id,
+            #         operations=operations,
+            #         type='Block',
+            #     )
+            # if not g.has_node(to_block_id):
+            #     operations = bid2operations.get(to_block_id, [])
+            #     g.add_node(
+            #         to_block_id,
+            #         operations=operations,
+            #         type='Block',
+            #     )
+
 
             # add select edge in the index of 0
-            if control_flow['index'] == 0:
-                g.add_node(
-                    control_flow['address_from'],
-                    type='Contract',
-                )
-                g.add_edge(
-                    control_flow['address_from'], from_block_id,
-                    func_name=tx2top_func_name[transaction_hash],
-                    type='Select',
-                    index=0,
-                )
-                tx2block_path[transaction_hash][0] = from_block_id
+            # if control_flow['index'] == 0:
+            #     g.add_node(
+            #         control_flow['address_from'],
+            #         type='Contract',
+            #     )
+            #     g.add_edge(
+            #         control_flow['address_from'], from_block_id,
+            #         func_name=tx2top_func_name[transaction_hash],
+            #         type='Select',
+            #         index=0,
+            #     )
+            tx2block_path[transaction_hash][0] = from_block_id
             tx2block_path[transaction_hash][control_flow['index']] = to_block_id
 
             # add select edge for the non-zero indices
@@ -117,21 +130,22 @@ class NetworkxDataset:
                     gas=int(control_flow['gas']),
                     type=control_flow['flow_type'],
                     index=control_flow['index'],
+                    func_name=control_flow['func_name'] #合约间的调用触发的函数名
                 )
-                g.add_edge(
-                    control_flow['address_to'], to_block_id,
-                    func_name=control_flow['func_name'],
-                    type='Select',
-                    index=control_flow['index'],
-                )
+                # g.add_edge(
+                #     control_flow['address_to'], to_block_id,
+                #     func_name=control_flow['func_name'],
+                #     type='Select',
+                #     index=control_flow['index'],
+                # )
                 continue
 
-            # add edge for other control flows
-            g.add_edge(
-                from_block_id, to_block_id,
-                type=control_flow['flow_type'],
-                index=control_flow['index'],
-            )
+            # # add edge for other control flows
+            # g.add_edge(
+            #     from_block_id, to_block_id,
+            #     type=control_flow['flow_type'],
+            #     index=control_flow['index'],
+            # )
 
         # load event logs
         txhash2logs = dict()
@@ -166,8 +180,9 @@ class NetworkxDataset:
                             event_name=log['event_name'],
                             type='Log',
                         )
+                    contract_address = block_id.split('#')[0] #找到block_id对应的合约地址
                     g.add_edge(
-                        block_id, log_id,
+                        contract_address, log_id, ##从block指向log，变成contract指向log
                         timestamp=int(log['timestamp']),
                         removed=log['removed'] == 'True',
                         type='Emit',
