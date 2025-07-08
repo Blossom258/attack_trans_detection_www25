@@ -47,6 +47,7 @@ class NetworkxDataset:
             ###这里是给两个账户加上交易边，不改
             g.add_node(item['address_from'], type='Account')
             g.add_node(item['address_to'], type='Account')
+            print(item['func_name'])
             g.add_edge(
                 item['address_from'], item['address_to'],
                 value=int(item['value']),
@@ -68,55 +69,27 @@ class NetworkxDataset:
 
         # load dcfg
         bid2operations = dict()
+
         for block in DCFGBlockReader(path).iter_read():
-            bid2operations[block['block_id']] = block['operations']
-            #block['block_id']的形式为0x111111111117dc0aa78b770fa6a738034120c302#0
-            #contract_address#start_pc
+            bid2operations[block['block_id']] = block['operations'] 
+
             for op in block['operations']:
-                if not op.startswith('LOG'):#检测有的操作码是否以log开头
+                if not op.startswith('LOG'):
                     continue
                 block2log_cnt[block['block_id']] = block2log_cnt.get(block['block_id'], 0) + 1
-                #记录该block_id触发了几次log
+
         reader = DCFGEdgeReader(path, signature2keyword=self.signature2keyword)
         for control_flow in reader.iter_read():
+ 
             transaction_hash = control_flow['transaction_hash']
-            #from_block_id的形式为'0x111111111117dc0aa78b770fa6a738034120c302#0'
-            #address_from#start_pc_from
+
             from_block_id = control_flow['from_block_id']
-            #to_block_id的形式为'0x111111111117dc0aa78b770fa6a738034120c302#16'
-            #address_to#start_pc_to
+ 
             to_block_id = control_flow['to_block_id']
             g = tx2graph.get(transaction_hash)
             if g is None:
                 continue
-            # if not g.has_node(from_block_id):
-            #     operations = bid2operations.get(from_block_id, []) #跟71行对应上
-            #     g.add_node(
-            #         from_block_id,
-            #         operations=operations,
-            #         type='Block',
-            #     )
-            # if not g.has_node(to_block_id):
-            #     operations = bid2operations.get(to_block_id, [])
-            #     g.add_node(
-            #         to_block_id,
-            #         operations=operations,
-            #         type='Block',
-            #     )
 
-
-            # add select edge in the index of 0
-            # if control_flow['index'] == 0:
-            #     g.add_node(
-            #         control_flow['address_from'],
-            #         type='Contract',
-            #     )
-            #     g.add_edge(
-            #         control_flow['address_from'], from_block_id,
-            #         func_name=tx2top_func_name[transaction_hash],
-            #         type='Select',
-            #         index=0,
-            #     )
             tx2block_path[transaction_hash][0] = from_block_id
             tx2block_path[transaction_hash][control_flow['index']] = to_block_id
 
@@ -132,20 +105,9 @@ class NetworkxDataset:
                     index=control_flow['index'],
                     func_name=control_flow['func_name'] #合约间的调用触发的函数名
                 )
-                # g.add_edge(
-                #     control_flow['address_to'], to_block_id,
-                #     func_name=control_flow['func_name'],
-                #     type='Select',
-                #     index=control_flow['index'],
-                # )
                 continue
 
-            # # add edge for other control flows
-            # g.add_edge(
-            #     from_block_id, to_block_id,
-            #     type=control_flow['flow_type'],
-            #     index=control_flow['index'],
-            # )
+
 
         # load event logs
         txhash2logs = dict()
@@ -154,6 +116,8 @@ class NetworkxDataset:
             if not txhash2logs.get(txhash):
                 txhash2logs[txhash] = list()
             txhash2logs[txhash].append(item)
+
+
         for txhash, logs in txhash2logs.items():
             len_log = len(logs)
             if len_log == 0:
@@ -166,6 +130,7 @@ class NetworkxDataset:
             block_path.sort(key=lambda _t: _t[0])
             block_path = [item[1] for item in block_path]
             for block_id in block_path:
+                print(block_id)
                 num_logs = block2log_cnt.get(block_id)
                 if not num_logs:
                     continue
@@ -326,8 +291,8 @@ class NetworkxDataset:
 
 if __name__ == '__main__':
     for txhash, g in NetworkxDataset(
-            data_path=r'C:\Users\87016\Downloads\tmp\raw\0',
-            signature_path=r'D:\transCLR_data\signatures.csv'
+            data_path=r'/home/fm/www/train_data/train_datav3/raw/0',
+            signature_path=r'/home/fm/www/misc/SignItem.csv'
     ).iter_read():
         print(txhash, g.number_of_nodes(), g.number_of_edges())
         node_type2cnt, edge_type2cnt = dict(), dict()

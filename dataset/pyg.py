@@ -208,12 +208,7 @@ class MultiModalTransactionDataset(Dataset):
                     str(attrs.get('func_name', '')),
                 ])
 
-            #合约到块的第一个函数的select移动到transaction，合约之间函数调用的select移动到call
-            # elif attrs['type'] == 'Select':
-            #     edge_type2edge_attr[t].append([
-            #         *[float(num) for num in ('%e' % attrs.get('index', -1)).split('e')],
-            #         str(attrs.get('func_name', '')),
-            #     ])
+ 
 
 
             elif attrs['type'] == 'Emit':
