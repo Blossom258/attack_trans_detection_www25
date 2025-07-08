@@ -1,5 +1,7 @@
+
 import argparse
 import os
+import time
 from typing import List, Dict
 
 import numpy as np
@@ -21,12 +23,10 @@ def get_eval_report(
         y_train: np.ndarray, y_test: np.ndarray,
         targets: List,
 ):
-    # eval
     det_model = RandomForestClassifier(
         n_estimators=300,
         n_jobs=os.cpu_count() // 2,
         class_weight={i: 1 if i == 0 else 20 for i in range(len(targets))},
-        # max_features=64,
     )
     det_model.fit(x_train, y_train)
     y_pred = det_model.predict(x_test)
@@ -36,10 +36,10 @@ def get_eval_report(
         target_names=targets,
         output_dict=True
     )
-    report['auc'] = roc_auc_score(
+    report['auc'] = float(roc_auc_score(
         y_true=[1 if item == 0 else -1 for item in y_test],
         y_score=[1 if item == 0 else -1 for item in y_pred],
-    )
+    ))
     return report
 
 
@@ -61,7 +61,6 @@ def few_shot_eval(
         *[y_train[y_train == i][:shots] for i in range(1, len(targets) + 1)],
     ], axis=0)
 
-    # eval
     report = get_eval_report(
         x_train=x_train, x_test=x_test,
         y_train=y_train, y_test=y_test,
@@ -79,19 +78,6 @@ def infer(
     with torch.no_grad():
         data = format_data_type(data)
         data = data.to(device)
-        # data = data.node_type_subgraph(['Account', 'Contract', 'Log'])
-        # data = data.edge_type_subgraph([
-        #     ("Block", "JUMPI", "Block"),
-        #     ("Block", "JUMP", "Block"),
-        #     ("Account", "Transaction", "Account"),
-        #     ("Account", "Transaction", "Contract"),
-        #     ("Contract", "CREATE", "Contract"),
-        #     ("Contract", "STATICCALL", "Contract"),
-        #     ("Contract", "CALL", "Contract"),
-        #     ("Contract", "CREATE2", "Contract"),
-        #     ("Contract", "DELEGATECALL", "Contract"),
-        #     ("Contract", "Select", "Block"),
-        # ])
         data = text_emb(data)
         graph_feats = model.graph_model(data)
         encoded_graph_feats = model.encoder(graph_feats)
@@ -99,7 +85,9 @@ def infer(
 
 
 def main(model_path: str, data_path: str, **kwargs):
+
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
+    print(device)
     model = Model(
         hidden_channels=kwargs.get('hidden_channels', 384),
         out_channels=kwargs.get('out_channels', 256),
@@ -117,22 +105,23 @@ def main(model_path: str, data_path: str, **kwargs):
     model.eval()
     text_emb.eval()
 
-    # init dataset
-    dataset = MultiModalTransactionDataset(root=data_path, signature_path='')
+    dataset = MultiModalTransactionDataset(root=data_path, signature_path='/home/fm/www/misc/SignItem.csv') #传入函数签名
 
-    # init data
     y_true, feats = [], []
     targets = {
         cls: i for i, cls in enumerate([
             'Non-attack', 'reentrancy',
             'integer-overflow',
             'call-injection', 'honeypot',
-            # 'airdrop-hunting',
             'flashloan attack',
         ])
     }
     nonattack_cnt = 100000
     batch_cache, batch_size = list(), kwargs.get('batch_size', 128)
+
+
+    inference_time = 0.0
+    
     for data in tqdm(dataset, total=len(dataset), desc='inferring'):
         if data.label not in targets:
             continue
@@ -146,21 +135,32 @@ def main(model_path: str, data_path: str, **kwargs):
 
         if len(batch_cache) < batch_size:
             continue
+
+        
         data = Batch.from_data_list(batch_cache)
         batch_cache = list()
+        start_time = time.time()
         graph_embeds = infer(model, text_emb, device, data)
+        inference_time += time.time() - start_time  # 累加推理时间
+        print(inference_time)
         feats.extend(graph_embeds.detach().cpu().numpy())
+    # 最后一个 batch
     if len(batch_cache) > 0:
         data = Batch.from_data_list(batch_cache)
+        start_time = time.time()
         graph_embeds = infer(model, text_emb, device, data)
+        inference_time += time.time() - start_time
         feats.extend(graph_embeds.detach().cpu().numpy())
 
-    # few-shot learning
+    print(f"\n[推理阶段] Total inference time: {inference_time:.2f} seconds")
+
+
     targets = list(targets.keys())
     feats, y_true = np.array(feats), np.array(y_true)
     report_keys = targets + ['macro avg', 'weighted avg']
+
+    start_time = time.time()
     for shots in [3, 5, 10, 30]:
-    # for shots in [30]:
         metrics_repeats = {
             key: {metric: list() for metric in [
                 'precision', 'recall', 'f1-score', 'support'
@@ -178,10 +178,9 @@ def main(model_path: str, data_path: str, **kwargs):
                 for metric, val in metrics[key].items():
                     metrics_repeats[key][metric].append(val)
             metrics_repeats['auc'].append(metrics['auc'])
-        print('{}-shot'.format(shots))
+        print(f'{shots}-shot')
         print(metrics_repeats)
 
-    # full-supervised learning
     metrics_repeats = {
         key: {metric: list() for metric in [
             'precision', 'recall', 'f1-score', 'support'
@@ -204,6 +203,13 @@ def main(model_path: str, data_path: str, **kwargs):
     print('full-supervised')
     print(metrics_repeats)
 
+    end_time = time.time()
+    prediction_time = end_time - start_time
+
+
+    print(f"\n[推理阶段] Total inference time: {inference_time:.2f} seconds")
+    print(f"[预测阶段] Total prediction time: {prediction_time:.2f} seconds")
+    print(f"[总体运行时间] Total: {inference_time + prediction_time:.2f} seconds")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
