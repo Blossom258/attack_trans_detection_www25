@@ -5,7 +5,7 @@ import networkx as nx
 from daos import EventLogReader, TransactionReader, \
     Token20TransferReader, Token721TransferReader, Token1155TransferReader, \
     TokenApprovalReader, TokenApprovalAllReader, \
-    DCFGBlockReader, DCFGEdgeReader, JointReader
+     JointReader,TraceReader
 from utils.signature import load_signatures
 
 call_ops = {
@@ -31,8 +31,7 @@ class NetworkxDataset:
     def _load_transaction_graphs(self, path: str) -> Iterator[nx.MultiDiGraph]:
         tx2graph = dict()
         tx2top_func_name = dict()  # record the first triggerred func name
-        tx2block_path = dict()  # record the triggerred blocks
-        block2log_cnt = dict()  # record the block triggerred log or not
+
 
         # load transaction
         reader = TransactionReader(path, signature2keyword=self.signature2keyword)
@@ -43,11 +42,8 @@ class NetworkxDataset:
         )
         for item in reader.iter_read():
             g = nx.MultiDiGraph()
-
-            ###这里是给两个账户加上交易边，不改
             g.add_node(item['address_from'], type='Account')
             g.add_node(item['address_to'], type='Account')
-            print(item['func_name'])
             g.add_edge(
                 item['address_from'], item['address_to'],
                 value=int(item['value']),
@@ -61,52 +57,33 @@ class NetworkxDataset:
                 transaction_index=int(item['transaction_index']),
                 func_name=item['func_name']#contract到block的select连边触发的函数，移动到交易
             )
+            tx2graph[item['transaction_hash']] = g
+            tx2top_func_name[item['transaction_hash']] = item['func_name']
 
 
-            tx2graph[item['transaction_hash']] = g #每个交易哈希对应一个交易图
-            tx2top_func_name[item['transaction_hash']] = item['func_name'] #记录每个交易哈希触发的第一个函数名
-            tx2block_path[item['transaction_hash']] = dict() #记录每个交易哈希触发的块路径
 
-        # load dcfg
-        bid2operations = dict()
 
-        for block in DCFGBlockReader(path).iter_read():
-            bid2operations[block['block_id']] = block['operations'] 
 
-            for op in block['operations']:
-                if not op.startswith('LOG'):
-                    continue
-                block2log_cnt[block['block_id']] = block2log_cnt.get(block['block_id'], 0) + 1
-
-        reader = DCFGEdgeReader(path, signature2keyword=self.signature2keyword)
+        reader = TraceReader(path) #读Trace的csv
         for control_flow in reader.iter_read():
- 
             transaction_hash = control_flow['transaction_hash']
-
-            from_block_id = control_flow['from_block_id']
- 
-            to_block_id = control_flow['to_block_id']
             g = tx2graph.get(transaction_hash)
             if g is None:
                 continue
 
-            tx2block_path[transaction_hash][0] = from_block_id
-            tx2block_path[transaction_hash][control_flow['index']] = to_block_id
 
             # add select edge for the non-zero indices
-            if call_ops.get(control_flow['flow_type']):
+            if call_ops.get(control_flow['trace_type']):
                 g.add_node(control_flow['address_from'], type='Contract')
                 g.add_node(control_flow['address_to'], type='Contract')
                 g.add_edge(
                     control_flow['address_from'], control_flow['address_to'],
                     value=int(control_flow['value']),
                     gas=int(control_flow['gas']),
-                    type=control_flow['flow_type'],
-                    index=control_flow['index'],
-                    func_name=control_flow['func_name'] #合约间的调用触发的函数名
+                    type=control_flow['trace_type'],
+                    index=control_flow['trace_id'],#traceid替换dcfgedge的index
                 )
                 continue
-
 
 
         # load event logs
@@ -116,8 +93,6 @@ class NetworkxDataset:
             if not txhash2logs.get(txhash):
                 txhash2logs[txhash] = list()
             txhash2logs[txhash].append(item)
-
-
         for txhash, logs in txhash2logs.items():
             len_log = len(logs)
             if len_log == 0:
@@ -126,17 +101,10 @@ class NetworkxDataset:
             emit_index, g = 0, tx2graph.get(txhash)
             if g is None:
                 continue
-            block_path = list(tx2block_path[txhash].items())
-            block_path.sort(key=lambda _t: _t[0])
-            block_path = [item[1] for item in block_path]
-            for block_id in block_path:
-                print(block_id)
-                num_logs = block2log_cnt.get(block_id)
-                if not num_logs:
-                    continue
-                while num_logs > 0 and emit_index < len_log:
-                    num_logs -= 1
+
+                while emit_index < len_log:
                     log = logs[emit_index]
+                    contract_address = log['address'] #通过日志item找到contract_address
                     topic0 = log['topics'][0] if len(log['topics']) > 0 else ''
                     log_id = '{}@{}'.format(txhash, topic0)
                     if not g.has_node(log_id):
@@ -145,9 +113,8 @@ class NetworkxDataset:
                             event_name=log['event_name'],
                             type='Log',
                         )
-                    contract_address = block_id.split('#')[0] #找到block_id对应的合约地址
                     g.add_edge(
-                        contract_address, log_id, ##从block指向log，变成contract指向log
+                        contract_address, log_id,
                         timestamp=int(log['timestamp']),
                         removed=log['removed'] == 'True',
                         type='Emit',
@@ -291,8 +258,8 @@ class NetworkxDataset:
 
 if __name__ == '__main__':
     for txhash, g in NetworkxDataset(
-            data_path=r'/home/fm/www/train_data/train_datav3/raw/0',
-            signature_path=r'/home/fm/www/misc/SignItem.csv'
+            data_path=r'C:\Users\87016\Downloads\tmp\raw\0',
+            signature_path=r'D:\transCLR_data\signatures.csv'
     ).iter_read():
         print(txhash, g.number_of_nodes(), g.number_of_edges())
         node_type2cnt, edge_type2cnt = dict(), dict()
