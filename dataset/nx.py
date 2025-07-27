@@ -102,25 +102,25 @@ class NetworkxDataset:
             if g is None:
                 continue
 
-                while emit_index < len_log:
-                    log = logs[emit_index]
-                    contract_address = log['address'] #通过日志item找到contract_address
-                    topic0 = log['topics'][0] if len(log['topics']) > 0 else ''
-                    log_id = '{}@{}'.format(txhash, topic0)
-                    if not g.has_node(log_id):
-                        g.add_node(
-                            log_id,
-                            event_name=log['event_name'],
-                            type='Log',
-                        )
-                    g.add_edge(
-                        contract_address, log_id,
-                        timestamp=int(log['timestamp']),
-                        removed=log['removed'] == 'True',
-                        type='Emit',
-                        emit_index=emit_index,
+            while emit_index < len_log:
+                log = logs[emit_index]
+                contract_address = log['address'] #通过日志item找到contract_address
+                topic0 = log['topics'][0] if len(log['topics']) > 0 else ''
+                log_id = '{}@{}'.format(txhash, topic0)
+                if not g.has_node(log_id):
+                    g.add_node(
+                        log_id,
+                        event_name=log['event_name'],
+                        type='Log',
                     )
-                    emit_index += 1
+                g.add_edge(
+                    contract_address, log_id,
+                    timestamp=int(log['timestamp']),
+                    removed=log['removed'] == 'True',
+                    type='Emit',
+                    emit_index=emit_index,
+                )
+                emit_index += 1
 
         # load token20 transfer
         reader = JointReader(
