@@ -64,7 +64,7 @@ class NetworkxDataset:
 
 
 
-        reader = TraceReader(path) #读Trace的csv
+        reader = TraceReader(path, signature2keyword=self.signature2keyword) #读Trace的csv
         for control_flow in reader.iter_read():
             transaction_hash = control_flow['transaction_hash']
             g = tx2graph.get(transaction_hash)
@@ -82,9 +82,9 @@ class NetworkxDataset:
                     gas=int(control_flow['gas']),
                     type=control_flow['trace_type'],
                     index=control_flow['trace_id'],#traceid替换dcfgedge的index
+                    func_name=control_flow['func_name'] #新添func_name
                 )
                 continue
-
 
         # load event logs
         txhash2logs = dict()
@@ -258,14 +258,14 @@ class NetworkxDataset:
 
 if __name__ == '__main__':
     for txhash, g in NetworkxDataset(
-            data_path=r'C:\Users\87016\Downloads\tmp\raw\0',
-            signature_path=r'D:\transCLR_data\signatures.csv'
+            data_path=r'/home/fm/www/train_data/train_datav3/raw/0',
+            signature_path=r'/home/fm/www/misc/SignItem.csv'
     ).iter_read():
-        print(txhash, g.number_of_nodes(), g.number_of_edges())
+        # print(txhash, g.number_of_nodes(), g.number_of_edges())
         node_type2cnt, edge_type2cnt = dict(), dict()
         for _, attr in g.nodes(data=True):
             node_type2cnt[attr['type']] = node_type2cnt.get(attr['type'], 0) + 1
-        print(node_type2cnt)
+        # print(node_type2cnt)
         for _, _, attr in g.edges(data=True):
             edge_type2cnt[attr['type']] = edge_type2cnt.get(attr['type'], 0) + 1
-        print(edge_type2cnt)
+        # print(edge_type2cnt)
