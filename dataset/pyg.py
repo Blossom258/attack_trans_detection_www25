@@ -256,6 +256,7 @@ class MultiModalTransactionDataset(Dataset):
                     *[float(num) for num in ('%e' % attrs.get('index', -1)).split('e')],
                     *[float(num) for num in ('%e' % attrs.get('value', -1)).split('e')],
                     *[float(num) for num in ('%e' % attrs.get('gas', -1)).split('e')],
+                    str(attrs.get('func_name', '')),
                 ])
 
         # embed text in feats and save data
