@@ -206,10 +206,6 @@ class MultiModalTransactionDataset(Dataset):
                     int(attrs.get('is_error', False)),
                     str(attrs.get('func_name', '')),
                 ])
-
- 
-
-
             elif attrs['type'] == 'Emit':
                 edge_type2edge_attr[t].append([
                     *[float(num) for num in ('%e' % attrs.get('emit_index', -1)).split('e')],
@@ -253,10 +249,10 @@ class MultiModalTransactionDataset(Dataset):
                 ])
             else:  # call op edges
                 edge_type2edge_attr[t].append([
-                    *[float(num) for num in ('%e' % attrs.get('index', -1)).split('e')],
                     *[float(num) for num in ('%e' % attrs.get('value', -1)).split('e')],
                     *[float(num) for num in ('%e' % attrs.get('gas', -1)).split('e')],
                     str(attrs.get('func_name', '')),
+                    str(attrs.get('index', '')),
                 ])
 
         # embed text in feats and save data
