@@ -253,6 +253,7 @@ class MultiModalTransactionDataset(Dataset):
                     *[float(num) for num in ('%e' % attrs.get('gas', -1)).split('e')],
                     str(attrs.get('func_name', '')),
                     str(attrs.get('index', '')),
+                    str(attrs.get('type', '')),
                 ])
 
         # embed text in feats and save data
@@ -265,13 +266,36 @@ class MultiModalTransactionDataset(Dataset):
                     feat.extend(text_feats[i])
             data[t].x = torch.tensor(feats)
         for t, edge_attrs in edge_type2edge_attr.items():
-            if isinstance(edge_attrs[0][-1], str):
+
+            if isinstance(edge_attrs[0][-3], str):
+                func_names = [edge_attr[-3] for edge_attr in edge_attrs]
+                indices    = [edge_attr[-2] for edge_attr in edge_attrs]
+                types      = [edge_attr[-1] for edge_attr in edge_attrs]
+
+                func_name_feats = text_tokenizing(func_names)
+                index_feats     = text_tokenizing(indices)
+                type_feats      = text_tokenizing(types)
+
+                for i, edge_attr in enumerate(edge_attrs):
+                    edge_attr.pop()   
+                    edge_attr.pop()   
+                    edge_attr.pop()   
+
+                    edge_attr.extend(func_name_feats[i])
+                    edge_attr.extend(index_feats[i])
+                    edge_attr.extend(type_feats[i])
+
+            data[t].edge_attr = torch.tensor(edge_attrs)
+            
+            elif isinstance(edge_attrs[0][-1], str):
                 texts = [edge_attr[-1] for edge_attr in edge_attrs]
                 text_feats = text_tokenizing(texts)
                 for i, edge_attr in enumerate(edge_attrs):
                     edge_attr.pop(-1)
                     edge_attr.extend(text_feats[i])
             data[t].edge_attr = torch.tensor(edge_attrs)
+
+
         for t, edges in edge_type2edges.items():
             data[t].edge_index = torch.tensor(edges).t().contiguous()
 
